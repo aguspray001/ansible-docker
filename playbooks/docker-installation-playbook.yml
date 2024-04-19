@@ -1,0 +1,82 @@
+---
+- name: Install Docker on Ubuntu
+  hosts: all
+  remote_user: root
+  become: true
+  vars:
+    arch_mapping:
+      x86_64: amd64
+      aarch64: arm64
+    url:
+      docker_gpg: https://download.docker.com/linux/ubuntu/gpg
+    path:
+      keyring: /etc/apt/keyrings
+
+  tasks:
+    - name: Update and upgrade all package to the latest version
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+        cache_valid_time: 3600
+
+    - name: Install required packages
+      apt:
+        pkg:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - software-properties-common
+
+    - name: Create directory for docker GPG key
+      file:
+        path: "{{ path.keyrings }}"
+        state: directory
+        mode: "0755"
+
+    - name: Add docker's official GPG key
+      ansible.builtin.apt_key:
+        url: "{{ url.docker_gpg }}"
+        keyring: "{{ path.keyrings }}/docker.gpg"
+        state: present
+
+    - name: Add Docker repository
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch={{ arch_mapping[ansible_architecture] | default(ansible_architecture) }}
+          signed-by={{ path.keyrings }}/docker.gpg]
+          https://download.docker.com/linux/ubuntu {{ ansible_lsb.codename }} stable
+        filename: docker
+        state: present
+
+    - name: Install Docker and related packages
+      ansible.builtin.apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: true
+      loop:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+        - docker-buildx-plugin
+        - docker-compose-plugin
+
+    - name: Add docker group
+      group:
+        name: docker
+        state: present
+
+    - name: Add docker user
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: true
+
+    - name: Enable and start docker service
+      systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - docker.service
+        - containerd.service
